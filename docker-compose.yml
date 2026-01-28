@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  influxdb:
+    image: influxdb:2.7
+    container_name: idrac-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE
+      - DOCKER_INFLUXDB_INIT_USERNAME
+      - DOCKER_INFLUXDB_INIT_PASSWORD
+      - DOCKER_INFLUXDB_INIT_ORG
+      - DOCKER_INFLUXDB_INIT_BUCKET
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    networks:
+      - idrac-network
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  telegraf:
+    image: telegraf:latest
+    container_name: idrac-telegraf
+    volumes:
+      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - INFLUXDB_URL
+      - INFLUXDB_TOKEN
+      - INFLUXDB_ORG
+      - INFLUXDB_BUCKET
+      - IDRAC_HOSTS
+      - IDRAC_COMMUNITY
+      - TELEGRAF_INTERVAL
+      - TELEGRAF_FLUSH_INTERVAL
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    networks:
+      - idrac-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: idrac-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD
+      - GF_SECURITY_ADMIN_USER
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - influxdb
+    networks:
+      - idrac-network
+    restart: unless-stopped
+
+  influxdb-init:
+    image: influxdb:2.7
+    container_name: idrac-influxdb-init
+    volumes:
+      - ./setup_v1.sh:/setup_v1.sh:ro
+    environment:
+      - INFLUX_HOST=http://influxdb:8086
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN
+      - DOCKER_INFLUXDB_INIT_ORG
+      - DOCKER_INFLUXDB_INIT_BUCKET
+      - DOCKER_INFLUXDB_INIT_USERNAME
+      - DOCKER_INFLUXDB_INIT_PASSWORD
+    command: ["/bin/bash", "/setup_v1.sh"]
+    depends_on:
+      influxdb:
+        condition: service_healthy
+    networks:
+      - idrac-network
+    restart: "no"
+
+volumes:
+  influxdb_data:
+  grafana_data:
+
+networks:
+  idrac-network:
+    driver: bridge
+
